@@ -1,0 +1,58 @@
+- name: Deploy Budget App on AWS EC2
+  hosts: aws
+  become: yes
+  tasks:
+    - name: Install Java 21 and Nginx
+      apt:
+        name: [openjdk-21-jre-headless, nginx]
+        state: present
+        update_cache: yes
+
+    - name: Create app directory
+      file:
+        path: /opt/budgetapp
+        state: directory
+        mode: '0755'
+
+    - name: Copy backend JAR
+      copy:
+        src: ../budgetapp-server/target/budgetapp-0.0.1-SNAPSHOT.jar
+        dest: /opt/budgetapp/budgetapp.jar
+
+    - name: Create systemd service
+      copy:
+        dest: /etc/systemd/system/budgetapp.service
+        content: |
+          [Unit]
+          Description=Budget App Spring Boot Backend
+          After=network.target
+          [Service]
+          User=ubuntu
+          ExecStart=/usr/lib/jvm/java-21-openjdk-amd64/bin/java -jar /opt/budgetapp/budgetapp.jar
+          Restart=always
+          [Install]
+          WantedBy=multi-user.target
+
+    - name: Copy React build
+      copy:
+        src: ../budgetapp-ui/build/
+        dest: /var/www/html/
+
+    - name: Configure Nginx for React
+      copy:
+        dest: /etc/nginx/sites-available/default
+        content: |
+          server {
+            listen 80 default_server;
+            root /var/www/html;
+            index index.html;
+            location / { try_files $uri /index.html; }
+          }
+
+    - name: Start services
+      systemd:
+        name: "{{ item }}"
+        state: restarted
+        enabled: yes
+        daemon_reload: yes
+      loop: [budgetapp, nginx]

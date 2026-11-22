@@ -1,0 +1,70 @@
+- name: Deploy Budget App locally on WSL
+  hosts: local
+  become: yes
+  tasks:
+    - name: Ensure Java 21 is installed
+      apt:
+        name: openjdk-21-jdk
+        state: present
+        update_cache: yes
+
+    - name: Create app directory
+      file:
+        path: /opt/budgetapp-local
+        state: directory
+        mode: '0755'
+
+    - name: Copy backend JAR
+      copy:
+        src: ../budgetapp-server/target/budgetapp-0.0.1-SNAPSHOT.jar
+        dest: /opt/budgetapp-local/budgetapp.jar
+
+    - name: Set JAR ownership and permissions
+      file:
+        path: /opt/budgetapp-local/budgetapp.jar
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Install Nginx
+      apt:
+        name: nginx
+        state: present
+
+    - name: Copy React build
+      copy:
+        src: ../budgetapp-ui/build/
+        dest: /var/www/html/
+
+    - name: Configure Nginx for React
+      copy:
+        dest: /etc/nginx/sites-available/default
+        content: |
+          server {
+            listen 80 default_server;
+            root /var/www/html;
+            index index.html;
+            location / { try_files $uri /index.html; }
+          }
+
+    - name: Create systemd service
+      copy:
+        dest: /etc/systemd/system/budgetapp-local.service
+        content: |
+          [Unit]
+          Description=Budget App Backend (local)
+          After=network.target mysql.service
+          [Service]
+          User=bidka
+          ExecStart=/usr/lib/jvm/java-21-openjdk-amd64/bin/java -jar /opt/budgetapp-local/budgetapp.jar
+          Restart=always
+          [Install]
+          WantedBy=multi-user.target
+
+    - name: Start services
+      systemd:
+        name: "{{ item }}"
+        state: restarted
+        enabled: yes
+        daemon_reload: yes
+      loop: [budgetapp-local, nginx]
